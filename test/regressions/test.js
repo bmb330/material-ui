@@ -1,4 +1,5 @@
 // @flow weak
+/* eslint-disable no-console */
 const path = require('path');
 const glob = require('glob');
 const pngCrop = require('png-crop');
@@ -48,24 +49,49 @@ function createTest(testPath) {
     }
 
     function compareScreenshots(client, baselinePath, screenshotPath, done) {
+      const diffPath = screenshotPath.replace('.png', '-diff.png');
       const diff = new BlinkDiff({
         imageAPath: baselinePath,
         imageBPath: screenshotPath,
+        imageOutputLimit: BlinkDiff.OUTPUT_DIFFERENT,
         thresholdType: BlinkDiff.THRESHOLD_PERCENT,
-        threshold: 0.01,
+        threshold: 0.001,
+        delta: 20,
         composition: false,
-        hideShift: true,
-        hShift: 2,
-        vShift: 2,
-        imageOutputPath: screenshotPath.replace('.png', '-diff.png'),
+        hideShift: false,
+        hShift: 0,
+        vShift: 0,
+        imageOutputPath: diffPath,
       });
 
       diff.run((error, result) => {
         if (error) {
           throw error;
         } else {
-          // console.log(diff.hasPassed(result.code) ? 'Passed' : 'Failed');
-          client.assert.strictEqual(result.differences, 0, `should have 0 differences, found ${result.differences}.`);
+          const passed = diff.hasPassed(result.code);
+          client.assert.strictEqual(passed, true, 'should have passed the diff test');
+
+          if (!passed) {
+            if (process.env.TRAVIS === true) {
+              const { TRAVIS_BUILD_ID, TRAVIS_JOB_ID } = process.env;
+              const s3Path = `${TRAVIS_BUILD_ID}/${TRAVIS_JOB_ID}/${diffPath.replace(/^.*output\//, '')}`;
+              console.error(
+                'Diff Screenshot:',
+                `https://s3.amazonaws.com/mui-test-artifacts/callemall/material-ui/${s3Path}`
+              );
+            } else {
+              console.error('Diff Screenshot:', diffPath);
+            }
+          }
+          /**
+           * Could include this... but feels like added noise.
+           */
+          // const max = Math.ceil(result.dimension * 0.001);
+          // client.assert.strictEqual(
+          //   result.differences < max,
+          //   true,
+          //   `should have less than ${max}/${result.dimension} differences, found ${result.differences}.`
+          // );
           done();
         }
       });
